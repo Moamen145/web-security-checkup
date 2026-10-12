@@ -1,0 +1,70 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: wsc-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: websecurity
+      POSTGRES_USER: wsc_user
+      POSTGRES_PASSWORD: wsc_password_secure
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - wsc-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: wsc-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - wsc-network
+
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.api
+    container_name: wsc-api
+    restart: unless-stopped
+    environment:
+      PORT: 4000
+      HOST: 0.0.0.0
+      NODE_ENV: production
+      DATABASE_URL: postgresql://wsc_user:wsc_password_secure@postgres:5432/websecurity?schema=public
+      JWT_SECRET: wsc-production-secret-signing-key-32bytes
+      CORS_ORIGIN: http://localhost:80
+    depends_on:
+      - postgres
+      - redis
+    ports:
+      - "4000:4000"
+    networks:
+      - wsc-network
+
+  web:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.web
+    container_name: wsc-web
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - api
+    networks:
+      - wsc-network
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  wsc-network:
+    driver: bridge

@@ -1,0 +1,123 @@
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id           String       @id @default(uuid())
+  email        String       @unique
+  passwordHash String
+  fullName     String
+  role         String       @default("USER")
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  targets      Target[]
+  assessments  Assessment[]
+
+  @@map("users")
+}
+
+model Target {
+  id                 String       @id @default(uuid())
+  userId             String
+  domain             String
+  normalizedHostname String
+  isVerified         Boolean      @default(false)
+  isFavorite         Boolean      @default(false)
+  lastAssessedAt     DateTime?
+  activeAssessmentId String?
+  createdAt          DateTime     @default(now())
+  user               User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  assessments        Assessment[]
+
+  @@unique([userId, normalizedHostname])
+  @@index([userId])
+  @@index([normalizedHostname])
+  @@map("targets")
+}
+
+model Assessment {
+  id              String             @id @default(uuid())
+  targetId        String
+  userId          String
+  domain          String
+  status          String             @default("QUEUED")
+  score           Int?
+  grade           String?
+  startedAt       DateTime?
+  completedAt     DateTime?
+  executionTimeMs Int?
+  errorMessage    String?
+  createdAt       DateTime           @default(now())
+  target          Target             @relation(fields: [targetId], references: [id], onDelete: Cascade)
+  user            User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  checkResults    CheckResult[]
+  findings        Finding[]
+  summary         AssessmentSummary?
+
+  @@index([userId, createdAt])
+  @@index([targetId, createdAt])
+  @@index([status])
+  @@map("assessments")
+}
+
+model CheckResult {
+  id              String     @id @default(uuid())
+  assessmentId    String
+  checkModule     String
+  status          String
+  executionTimeMs Int
+  rawEvidence     String     @default("{}")
+  createdAt       DateTime   @default(now())
+  assessment      Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  findings        Finding[]
+
+  @@index([assessmentId])
+  @@map("check_results")
+}
+
+model Finding {
+  id             String       @id @default(uuid())
+  assessmentId   String
+  checkResultId  String?
+  ruleId         String
+  category       String
+  title          String
+  severity       String
+  description    String
+  whyItMatters   String
+  potentialImpact String
+  evidence       String       @default("{}")
+  recommendation String
+  remediationCode String?
+  referenceUrl   String
+  scoreDeduction Int          @default(0)
+  createdAt      DateTime     @default(now())
+  assessment     Assessment   @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  checkResult    CheckResult? @relation(fields: [checkResultId], references: [id], onDelete: SetNull)
+
+  @@index([assessmentId, severity])
+  @@index([ruleId])
+  @@map("findings")
+}
+
+model AssessmentSummary {
+  id                 String     @id @default(uuid())
+  assessmentId       String     @unique
+  categoryScores     String     @default("{}")
+  countsBySeverity   String     @default("{}")
+  totalChecks        Int        @default(0)
+  passedChecks       Int        @default(0)
+  failedChecks       Int        @default(0)
+  aiExecutiveSummary String?
+  aiActionPlan       String?
+  aiModelVersion     String?
+  generatedAt        DateTime   @default(now())
+  assessment         Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+
+  @@map("assessment_summaries")
+}

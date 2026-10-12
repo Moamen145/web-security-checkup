@@ -1,0 +1,19 @@
+{
+  "name": "web-security-checkup-root",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Web Security Checkup — Security configuration & exposure assessment SaaS platform",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspaces --if-present",
+    "build": "npm run build --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.5"
+  }
+}
