@@ -1,8 +1,16 @@
 import dns from 'node:dns/promises';
-import { CheckModuleExecutionResult } from '@wsc/shared';
+import { CheckModuleExecutionResult, ScannerCheckMeta } from '@wsc/shared';
+import { IScannerCheck, CheckExecutionContext } from '../engine/check.interface.js';
 
-export async function runDnsCheck(domain: string): Promise<CheckModuleExecutionResult> {
+export async function runDnsCheck(
+  domain: string,
+  options?: { signal?: AbortSignal }
+): Promise<CheckModuleExecutionResult> {
   const startTime = Date.now();
+  if (options?.signal?.aborted) {
+    throw new Error('The operation was aborted');
+  }
+
   const findings: Array<{ ruleId: string; customDescription?: string; customEvidence?: Record<string, any> }> = [];
   const evidence: Record<string, any> = {
     domain,
@@ -13,21 +21,31 @@ export async function runDnsCheck(domain: string): Promise<CheckModuleExecutionR
 
   try {
     try {
+      if (options?.signal?.aborted) throw new Error('The operation was aborted');
       evidence.aRecords = await dns.resolve4(domain);
-    } catch {
+    } catch (err: any) {
+      if (options?.signal?.aborted || err.message === 'The operation was aborted') throw err;
       // No IPv4 records
     }
 
     try {
+      if (options?.signal?.aborted) throw new Error('The operation was aborted');
       evidence.aaaaRecords = await dns.resolve6(domain);
-    } catch {
+    } catch (err: any) {
+      if (options?.signal?.aborted || err.message === 'The operation was aborted') throw err;
       // No IPv6 records
     }
 
     try {
+      if (options?.signal?.aborted) throw new Error('The operation was aborted');
       evidence.cnameRecords = await dns.resolveCname(domain);
-    } catch {
+    } catch (err: any) {
+      if (options?.signal?.aborted || err.message === 'The operation was aborted') throw err;
       // Not a CNAME
+    }
+
+    if (options?.signal?.aborted) {
+      throw new Error('The operation was aborted');
     }
 
     const hasIp = evidence.aRecords.length > 0 || evidence.aaaaRecords.length > 0;
@@ -49,6 +67,9 @@ export async function runDnsCheck(domain: string): Promise<CheckModuleExecutionR
       findings,
     };
   } catch (err: any) {
+    if (options?.signal?.aborted || err.message === 'The operation was aborted') {
+      throw err;
+    }
     return {
       module: 'DNS',
       status: 'ERROR',
@@ -57,5 +78,19 @@ export async function runDnsCheck(domain: string): Promise<CheckModuleExecutionR
       findings,
       error: err.message,
     };
+  }
+}
+
+export class DnsCheck implements IScannerCheck {
+  readonly meta: ScannerCheckMeta = {
+    id: 'dns',
+    category: 'DNS',
+    name: 'DNS Resolution & Host Routing',
+    description: 'Checks A, AAAA, and CNAME address mapping for reachable host routing.',
+    timeoutMs: 10000,
+  };
+
+  async execute(context: CheckExecutionContext): Promise<CheckModuleExecutionResult> {
+    return runDnsCheck(context.target.hostname, { signal: context.signal });
   }
 }

@@ -10,7 +10,9 @@ export interface SafeFetchOptions {
   maxRedirects?: number;
   timeoutMs?: number;
   maxBodyBytes?: number;
+  signal?: AbortSignal;
 }
+
 
 export interface SafeFetchResponse {
   finalUrl: string;
@@ -47,10 +49,18 @@ export async function safeFetch(
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const maxBodyBytes = options.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES;
 
+  if (options.signal?.aborted) {
+    throw new Error('The operation was aborted');
+  }
+
   let currentUrl = targetUrl;
   const redirectHistory: Array<{ url: string; statusCode: number; location?: string }> = [];
 
   for (let hop = 0; hop <= maxRedirects; hop++) {
+    if (options.signal?.aborted) {
+      throw new Error('The operation was aborted');
+    }
+
     const parsed = new URL(currentUrl);
 
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
@@ -79,6 +89,7 @@ export async function safeFetch(
       },
       timeoutMs,
       maxBodyBytes,
+      signal: options.signal,
     });
 
     const isRedirect = [301, 302, 303, 307, 308].includes(singleResult.statusCode);
@@ -125,6 +136,7 @@ interface InternalRequestOptions {
   headers: Record<string, string>;
   timeoutMs: number;
   maxBodyBytes: number;
+  signal?: AbortSignal;
 }
 
 function executePinnedRequest(opts: InternalRequestOptions): Promise<{
@@ -143,13 +155,31 @@ function executePinnedRequest(opts: InternalRequestOptions): Promise<{
   return new Promise((resolve, reject) => {
     let settled = false;
     let tlsDetails: any = undefined;
+    let onAbort: (() => void) | null = null;
+    let req: http.ClientRequest | null = null;
+
+    const cleanup = () => {
+      if (opts.signal && onAbort) {
+        opts.signal.removeEventListener('abort', onAbort);
+        onAbort = null;
+      }
+    };
 
     const cleanupAndReject = (err: Error) => {
       if (!settled) {
         settled = true;
+        cleanup();
+        if (req && !req.destroyed) {
+          req.destroy();
+        }
         reject(err);
       }
     };
+
+    if (opts.signal?.aborted) {
+      cleanupAndReject(new Error('The operation was aborted'));
+      return;
+    }
 
     const reqOptions: http.RequestOptions = {
       host: opts.pinnedIp, // Connect socket directly to verified IP
@@ -162,8 +192,6 @@ function executePinnedRequest(opts: InternalRequestOptions): Promise<{
       },
       timeout: opts.timeoutMs,
     };
-
-    let req: http.ClientRequest;
 
     if (opts.isHttps) {
       const httpsOptions: https.RequestOptions = {
@@ -198,8 +226,15 @@ function executePinnedRequest(opts: InternalRequestOptions): Promise<{
       req = http.request(reqOptions);
     }
 
+    if (opts.signal) {
+      onAbort = () => {
+        cleanupAndReject(new Error('The operation was aborted'));
+      };
+      opts.signal.addEventListener('abort', onAbort, { once: true });
+    }
+
     req.on('timeout', () => {
-      req.destroy();
+      req?.destroy();
       cleanupAndReject(new Error(`Connection to ${opts.url.hostname} timed out after ${opts.timeoutMs}ms.`));
     });
 
@@ -225,6 +260,7 @@ function executePinnedRequest(opts: InternalRequestOptions): Promise<{
       res.on('end', () => {
         if (!settled) {
           settled = true;
+          cleanup();
           resolve({
             statusCode: res.statusCode || 0,
             statusMessage: res.statusMessage || '',
@@ -238,6 +274,7 @@ function executePinnedRequest(opts: InternalRequestOptions): Promise<{
       res.on('close', () => {
         if (!settled) {
           settled = true;
+          cleanup();
           resolve({
             statusCode: res.statusCode || 0,
             statusMessage: res.statusMessage || '',

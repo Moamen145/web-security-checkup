@@ -1,5 +1,6 @@
-import { CheckModuleExecutionResult } from '@wsc/shared';
+import { CheckModuleExecutionResult, ScannerCheckMeta } from '@wsc/shared';
 import { safeFetch } from '../network/pinned.agent.js';
+import { IScannerCheck, CheckExecutionContext } from '../engine/check.interface.js';
 
 interface ParsedCookie {
   name: string;
@@ -10,12 +11,23 @@ interface ParsedCookie {
   raw: string;
 }
 
-export async function runCookiesCheck(domain: string): Promise<CheckModuleExecutionResult> {
+export async function runCookiesCheck(
+  domain: string,
+  options?: { signal?: AbortSignal }
+): Promise<CheckModuleExecutionResult> {
   const startTime = Date.now();
+  if (options?.signal?.aborted) {
+    throw new Error('The operation was aborted');
+  }
+
   const findings: Array<{ ruleId: string; customDescription?: string; customEvidence?: Record<string, any> }> = [];
 
   try {
-    const res = await safeFetch(`https://${domain}`, { method: 'GET', maxRedirects: 3 });
+    const res = await safeFetch(`https://${domain}`, {
+      method: 'GET',
+      maxRedirects: 3,
+      signal: options?.signal,
+    });
     const setCookieHeaders = res.headers['set-cookie'];
 
     const cookieStrings: string[] = [];
@@ -87,6 +99,9 @@ export async function runCookiesCheck(domain: string): Promise<CheckModuleExecut
       findings,
     };
   } catch (err: any) {
+    if (options?.signal?.aborted || err.message === 'The operation was aborted') {
+      throw err;
+    }
     return {
       module: 'COOKIES',
       status: 'INFO',
@@ -96,6 +111,7 @@ export async function runCookiesCheck(domain: string): Promise<CheckModuleExecut
     };
   }
 }
+
 
 function parseCookieHeader(raw: string): ParsedCookie {
   const parts = raw.split(';').map((p) => p.trim());
@@ -123,4 +139,18 @@ function parseCookieHeader(raw: string): ParsedCookie {
   }
 
   return { name, value, secure, httpOnly, sameSite, raw };
+}
+
+export class CookiesCheck implements IScannerCheck {
+  readonly meta: ScannerCheckMeta = {
+    id: 'cookies',
+    category: 'COOKIES',
+    name: 'Cookie Security Attributes',
+    description: 'Inspects HTTP cookies for Secure, HttpOnly, and SameSite attributes.',
+    timeoutMs: 10000,
+  };
+
+  async execute(context: CheckExecutionContext): Promise<CheckModuleExecutionResult> {
+    return runCookiesCheck(context.target.hostname, { signal: context.signal });
+  }
 }

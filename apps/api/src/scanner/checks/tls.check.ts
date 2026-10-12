@@ -1,10 +1,18 @@
 import tls from 'node:tls';
-import { CheckModuleExecutionResult } from '@wsc/shared';
+import { CheckModuleExecutionResult, ScannerCheckMeta } from '@wsc/shared';
 import { safeFetch } from '../network/pinned.agent.js';
 import { validateAndResolveTarget } from '../network/ssrf.guard.js';
+import { IScannerCheck, CheckExecutionContext } from '../engine/check.interface.js';
 
-export async function runTlsCheck(domain: string): Promise<CheckModuleExecutionResult> {
+export async function runTlsCheck(
+  domain: string,
+  options?: { signal?: AbortSignal }
+): Promise<CheckModuleExecutionResult> {
   const startTime = Date.now();
+  if (options?.signal?.aborted) {
+    throw new Error('The operation was aborted');
+  }
+
   const findings: Array<{ ruleId: string; customDescription?: string; customEvidence?: Record<string, any> }> = [];
   const evidence: Record<string, any> = {
     domain,
@@ -18,7 +26,11 @@ export async function runTlsCheck(domain: string): Promise<CheckModuleExecutionR
   try {
     // 1. Check HTTP to HTTPS redirection
     try {
-      const httpResult = await safeFetch(`http://${domain}`, { method: 'HEAD', maxRedirects: 3 });
+      const httpResult = await safeFetch(`http://${domain}`, {
+        method: 'HEAD',
+        maxRedirects: 3,
+        signal: options?.signal,
+      });
       evidence.httpStatusCode = httpResult.statusCode;
       evidence.redirectHistory = httpResult.redirectHistory;
 
@@ -37,13 +49,20 @@ export async function runTlsCheck(domain: string): Promise<CheckModuleExecutionR
         });
       }
     } catch (err: any) {
+      if (options?.signal?.aborted || err.message === 'The operation was aborted') {
+        throw err;
+      }
       evidence.httpError = err.message;
       // If HTTP fails completely, note it
     }
 
+    if (options?.signal?.aborted) {
+      throw new Error('The operation was aborted');
+    }
+
     // 2. Direct TLS Handshake on port 443
     const validated = await validateAndResolveTarget(domain);
-    const tlsResult = await probeTlsCertificate(domain, validated.resolvedIp);
+    const tlsResult = await probeTlsCertificate(domain, validated.resolvedIp, 5000, options?.signal);
 
     evidence.httpsSupported = true;
     evidence.tlsProtocol = tlsResult.protocol;
@@ -106,11 +125,14 @@ export async function runTlsCheck(domain: string): Promise<CheckModuleExecutionR
     return {
       module: 'TLS_HTTPS',
       status,
-      executionTimeMs: DateTrans() - startTime,
+      executionTimeMs: Date.now() - startTime,
       evidence,
       findings,
     };
   } catch (err: any) {
+    if (options?.signal?.aborted || err.message === 'The operation was aborted') {
+      throw err;
+    }
     // Port 443 unreachable or TLS handshake failed
     findings.push({
       ruleId: 'TLS-NO-HTTPS',
@@ -121,16 +143,12 @@ export async function runTlsCheck(domain: string): Promise<CheckModuleExecutionR
     return {
       module: 'TLS_HTTPS',
       status: 'FAIL',
-      executionTimeMs: DateTrans() - startTime,
+      executionTimeMs: Date.now() - startTime,
       evidence: { domain, error: err.message, httpsSupported: false },
       findings,
       error: err.message,
     };
   }
-}
-
-function DateTrans(): number {
-  return Date.now();
 }
 
 interface TlsProbeResult {
@@ -146,11 +164,41 @@ interface TlsProbeResult {
   sanList: string[];
 }
 
-function probeTlsCertificate(hostname: string, ip: string, timeoutMs = 5000): Promise<TlsProbeResult> {
+function probeTlsCertificate(
+  hostname: string,
+  ip: string,
+  timeoutMs = 5000,
+  signal?: AbortSignal
+): Promise<TlsProbeResult> {
   return new Promise((resolve, reject) => {
     let settled = false;
+    let onAbort: (() => void) | null = null;
+    let socket: tls.TLSSocket | null = null;
 
-    const socket = tls.connect(
+    const cleanup = () => {
+      if (signal && onAbort) {
+        signal.removeEventListener('abort', onAbort);
+        onAbort = null;
+      }
+    };
+
+    const cleanupAndReject = (err: Error) => {
+      if (!settled) {
+        settled = true;
+        cleanup();
+        if (socket && !socket.destroyed) {
+          socket.destroy();
+        }
+        reject(err);
+      }
+    };
+
+    if (signal?.aborted) {
+      cleanupAndReject(new Error('The operation was aborted'));
+      return;
+    }
+
+    socket = tls.connect(
       {
         host: ip,
         port: 443,
@@ -160,16 +208,12 @@ function probeTlsCertificate(hostname: string, ip: string, timeoutMs = 5000): Pr
       },
       () => {
         try {
-          const cert = socket.getPeerCertificate(true);
-          const cipher = socket.getCipher();
-          const protocol = socket.getProtocol();
+          const cert = socket!.getPeerCertificate(true);
+          const cipher = socket!.getCipher();
+          const protocol = socket!.getProtocol();
 
           if (!cert || Object.keys(cert).length === 0) {
-            socket.destroy();
-            if (!settled) {
-              settled = true;
-              reject(new Error('No peer certificate returned by the server.'));
-            }
+            cleanupAndReject(new Error('No peer certificate returned by the server.'));
             return;
           }
 
@@ -188,8 +232,8 @@ function probeTlsCertificate(hostname: string, ip: string, timeoutMs = 5000): Pr
           const result: TlsProbeResult = {
             protocol: protocol || undefined,
             cipher: cipher?.name,
-            authorized: socket.authorized,
-            authorizationError: socket.authorizationError ? String(socket.authorizationError) : undefined,
+            authorized: socket!.authorized,
+            authorizationError: socket!.authorizationError ? String(socket!.authorizationError) : undefined,
             subject: cert.subject as any,
             issuer: cert.issuer as any,
             validFrom: cert.valid_from,
@@ -198,35 +242,31 @@ function probeTlsCertificate(hostname: string, ip: string, timeoutMs = 5000): Pr
             sanList: sanArray,
           };
 
-          socket.end();
+          socket!.end();
           if (!settled) {
             settled = true;
+            cleanup();
             resolve(result);
           }
         } catch (err: any) {
-          socket.destroy();
-          if (!settled) {
-            settled = true;
-            reject(err);
-          }
+          cleanupAndReject(err);
         }
       }
     );
 
+    if (signal) {
+      onAbort = () => {
+        cleanupAndReject(new Error('The operation was aborted'));
+      };
+      signal.addEventListener('abort', onAbort, { once: true });
+    }
+
     socket.on('timeout', () => {
-      socket.destroy();
-      if (!settled) {
-        settled = true;
-        reject(new Error(`TLS handshake timed out after ${timeoutMs}ms.`));
-      }
+      cleanupAndReject(new Error(`TLS handshake timed out after ${timeoutMs}ms.`));
     });
 
     socket.on('error', (err) => {
-      socket.destroy();
-      if (!settled) {
-        settled = true;
-        reject(err);
-      }
+      cleanupAndReject(err);
     });
   });
 }
@@ -252,4 +292,18 @@ function isHostnameMatchingCert(domain: string, cn?: string, sanList?: string[])
   }
 
   return false;
+}
+
+export class TlsCheck implements IScannerCheck {
+  readonly meta: ScannerCheckMeta = {
+    id: 'tls',
+    category: 'TLS_HTTPS',
+    name: 'TLS & Transport Encryption',
+    description: 'Inspects certificate validity, protocols, and HTTP-to-HTTPS redirect.',
+    timeoutMs: 10000,
+  };
+
+  async execute(context: CheckExecutionContext): Promise<CheckModuleExecutionResult> {
+    return runTlsCheck(context.target.hostname, { signal: context.signal });
+  }
 }

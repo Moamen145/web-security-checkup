@@ -1,5 +1,6 @@
-import { CheckModuleExecutionResult } from '@wsc/shared';
+import { CheckModuleExecutionResult, ScannerCheckMeta } from '@wsc/shared';
 import { safeFetch } from '../network/pinned.agent.js';
+import { IScannerCheck, CheckExecutionContext } from '../engine/check.interface.js';
 
 export function parseCspDirectives(cspHeader: string): Map<string, string[]> {
   const directives = new Map<string, string[]>();
@@ -79,12 +80,23 @@ export function evaluateCspHeader(csp: string): {
   return { findings, hasFrameAncestors, directives: directivesObj };
 }
 
-export async function runHeadersCheck(domain: string): Promise<CheckModuleExecutionResult> {
+export async function runHeadersCheck(
+  domain: string,
+  options?: { signal?: AbortSignal }
+): Promise<CheckModuleExecutionResult> {
   const startTime = Date.now();
+  if (options?.signal?.aborted) {
+    throw new Error('The operation was aborted');
+  }
+
   const findings: Array<{ ruleId: string; customDescription?: string; customEvidence?: Record<string, any> }> = [];
 
   try {
-    const res = await safeFetch(`https://${domain}`, { method: 'GET', maxRedirects: 3 });
+    const res = await safeFetch(`https://${domain}`, {
+      method: 'GET',
+      maxRedirects: 3,
+      signal: options?.signal,
+    });
     const headers = res.headers;
 
     // Normalize header keys to lowercase
@@ -193,6 +205,9 @@ export async function runHeadersCheck(domain: string): Promise<CheckModuleExecut
       findings,
     };
   } catch (err: any) {
+    if (options?.signal?.aborted || err.message === 'The operation was aborted') {
+      throw err;
+    }
     return {
       module: 'SECURITY_HEADERS',
       status: 'ERROR',
@@ -205,5 +220,19 @@ export async function runHeadersCheck(domain: string): Promise<CheckModuleExecut
       findings: [],
       error: err.message,
     };
+  }
+}
+
+export class HeadersCheck implements IScannerCheck {
+  readonly meta: ScannerCheckMeta = {
+    id: 'headers',
+    category: 'SECURITY_HEADERS',
+    name: 'HTTP Security Headers',
+    description: 'Evaluates defense-in-depth HTTP response headers (CSP, HSTS, XFO, etc.).',
+    timeoutMs: 10000,
+  };
+
+  async execute(context: CheckExecutionContext): Promise<CheckModuleExecutionResult> {
+    return runHeadersCheck(context.target.hostname, { signal: context.signal });
   }
 }

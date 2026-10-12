@@ -32,3 +32,11 @@ export interface CheckModuleExecutionResult {
   }>;
   error?: string;
 }
+
+export interface ScannerCheckMeta {
+  id: string;
+  category: FindingCategory;
+  name: string;
+  description: string;
+  timeoutMs?: number;
+}

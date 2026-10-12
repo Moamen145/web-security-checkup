@@ -1,12 +1,24 @@
-import { CheckModuleExecutionResult } from '@wsc/shared';
+import { CheckModuleExecutionResult, ScannerCheckMeta } from '@wsc/shared';
 import { safeFetch } from '../network/pinned.agent.js';
+import { IScannerCheck, CheckExecutionContext } from '../engine/check.interface.js';
 
-export async function runExposureCheck(domain: string): Promise<CheckModuleExecutionResult> {
+export async function runExposureCheck(
+  domain: string,
+  options?: { signal?: AbortSignal }
+): Promise<CheckModuleExecutionResult> {
   const startTime = Date.now();
+  if (options?.signal?.aborted) {
+    throw new Error('The operation was aborted');
+  }
+
   const findings: Array<{ ruleId: string; customDescription?: string; customEvidence?: Record<string, any> }> = [];
 
   try {
-    const res = await safeFetch(`https://${domain}`, { method: 'HEAD', maxRedirects: 2 });
+    const res = await safeFetch(`https://${domain}`, {
+      method: 'HEAD',
+      maxRedirects: 2,
+      signal: options?.signal,
+    });
     const headers = res.headers;
 
     const evidence: Record<string, any> = {
@@ -49,6 +61,9 @@ export async function runExposureCheck(domain: string): Promise<CheckModuleExecu
       findings,
     };
   } catch (err: any) {
+    if (options?.signal?.aborted || err.message === 'The operation was aborted') {
+      throw err;
+    }
     return {
       module: 'EXPOSURE',
       status: 'INFO',
@@ -56,5 +71,19 @@ export async function runExposureCheck(domain: string): Promise<CheckModuleExecu
       evidence: { error: err.message },
       findings: [],
     };
+  }
+}
+
+export class ExposureCheck implements IScannerCheck {
+  readonly meta: ScannerCheckMeta = {
+    id: 'exposure',
+    category: 'EXPOSURE',
+    name: 'Technology & Header Exposure',
+    description: 'Detects server banner and technology fingerprint leakage in response headers.',
+    timeoutMs: 10000,
+  };
+
+  async execute(context: CheckExecutionContext): Promise<CheckModuleExecutionResult> {
+    return runExposureCheck(context.target.hostname, { signal: context.signal });
   }
 }

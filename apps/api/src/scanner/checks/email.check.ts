@@ -1,10 +1,18 @@
 import dns from 'node:dns/promises';
-import { CheckModuleExecutionResult } from '@wsc/shared';
+import { CheckModuleExecutionResult, ScannerCheckMeta } from '@wsc/shared';
+import { IScannerCheck, CheckExecutionContext } from '../engine/check.interface.js';
 
 const COMMON_DKIM_SELECTORS = ['default', 'google', 'k1', 'selector1', 'mail'];
 
-export async function runEmailSecurityCheck(domain: string): Promise<CheckModuleExecutionResult> {
+export async function runEmailSecurityCheck(
+  domain: string,
+  options?: { signal?: AbortSignal }
+): Promise<CheckModuleExecutionResult> {
   const startTime = Date.now();
+  if (options?.signal?.aborted) {
+    throw new Error('The operation was aborted');
+  }
+
   const findings: Array<{ ruleId: string; customDescription?: string; customEvidence?: Record<string, any> }> = [];
   const evidence: Record<string, any> = {
     domain,
@@ -17,9 +25,11 @@ export async function runEmailSecurityCheck(domain: string): Promise<CheckModule
   try {
     // 1. MX Records
     try {
+      if (options?.signal?.aborted) throw new Error('The operation was aborted');
       const mx = await dns.resolveMx(domain);
       evidence.mxRecords = mx.sort((a, b) => a.priority - b.priority);
-    } catch {
+    } catch (err: any) {
+      if (options?.signal?.aborted || err.message === 'The operation was aborted') throw err;
       evidence.mxRecords = [];
     }
 
@@ -33,6 +43,7 @@ export async function runEmailSecurityCheck(domain: string): Promise<CheckModule
 
     // 2. SPF Record from root domain TXT records
     try {
+      if (options?.signal?.aborted) throw new Error('The operation was aborted');
       const txtRecords = await dns.resolveTxt(domain);
       const flattenedTxt = txtRecords.map((chunk) => chunk.join(''));
       const spf = flattenedTxt.find((r) => r.toLowerCase().startsWith('v=spf1'));
@@ -52,7 +63,8 @@ export async function runEmailSecurityCheck(domain: string): Promise<CheckModule
           });
         }
       }
-    } catch {
+    } catch (err: any) {
+      if (options?.signal?.aborted || err.message === 'The operation was aborted') throw err;
       findings.push({
         ruleId: 'EMAIL-MISSING-SPF',
         customEvidence: { error: 'Failed to resolve TXT records' },
@@ -61,6 +73,7 @@ export async function runEmailSecurityCheck(domain: string): Promise<CheckModule
 
     // 3. DMARC Record from _dmarc.<domain>
     try {
+      if (options?.signal?.aborted) throw new Error('The operation was aborted');
       const dmarcTxt = await dns.resolveTxt(`_dmarc.${domain}`);
       const flattenedDmarc = dmarcTxt.map((chunk) => chunk.join('')).find((r) => r.toLowerCase().startsWith('v=dmarc1'));
 
@@ -84,7 +97,8 @@ export async function runEmailSecurityCheck(domain: string): Promise<CheckModule
           });
         }
       }
-    } catch {
+    } catch (err: any) {
+      if (options?.signal?.aborted || err.message === 'The operation was aborted') throw err;
       findings.push({
         ruleId: 'EMAIL-MISSING-DMARC',
         customEvidence: { dmarcQuery: `_dmarc.${domain}`, error: 'No _dmarc TXT record found' },
@@ -94,13 +108,15 @@ export async function runEmailSecurityCheck(domain: string): Promise<CheckModule
     // 4. DKIM Selector Discovery Heuristic
     for (const selector of COMMON_DKIM_SELECTORS) {
       try {
+        if (options?.signal?.aborted) throw new Error('The operation was aborted');
         const dkimQuery = `${selector}._domainkey.${domain}`;
         const dkimTxt = await dns.resolveTxt(dkimQuery);
         const record = dkimTxt.map((c) => c.join('')).find((r) => r.toLowerCase().includes('v=dkim1') || r.includes('p='));
         if (record) {
           evidence.dkimDetected.push({ selector, record });
         }
-      } catch {
+      } catch (err: any) {
+        if (options?.signal?.aborted || err.message === 'The operation was aborted') throw err;
         // Selector not present
       }
     }
@@ -119,6 +135,9 @@ export async function runEmailSecurityCheck(domain: string): Promise<CheckModule
       findings,
     };
   } catch (err: any) {
+    if (options?.signal?.aborted || err.message === 'The operation was aborted') {
+      throw err;
+    }
     return {
       module: 'EMAIL_SECURITY',
       status: 'ERROR',
@@ -127,5 +146,19 @@ export async function runEmailSecurityCheck(domain: string): Promise<CheckModule
       findings,
       error: err.message,
     };
+  }
+}
+
+export class EmailSecurityCheck implements IScannerCheck {
+  readonly meta: ScannerCheckMeta = {
+    id: 'email',
+    category: 'EMAIL_SECURITY',
+    name: 'Email Authentication & Spoof Protection',
+    description: 'Audits MX, SPF, DMARC, and DKIM DNS records to defend against email spoofing.',
+    timeoutMs: 10000,
+  };
+
+  async execute(context: CheckExecutionContext): Promise<CheckModuleExecutionResult> {
+    return runEmailSecurityCheck(context.target.hostname, { signal: context.signal });
   }
 }
