@@ -1,16 +1,10 @@
 import dotenv from 'dotenv';
-import path from 'node:path';
-import fs from 'node:fs';
 
 dotenv.config();
 
-// Ensure data folder exists for SQLite
-const dataDir = path.resolve(process.cwd(), 'data');
-if (!fs.existsSync(dataDir)) {
-  fs.mkdirSync(dataDir, { recursive: true });
-}
-
 export const DEV_DEFAULT_JWT_SECRET = 'wsc-super-secret-production-grade-key-2026';
+export const DEV_DEFAULT_DATABASE_URL =
+  'postgresql://wsc_user:wsc_password_secure@localhost:5432/websecurity?schema=public';
 
 export interface AppConfig {
   PORT: number;
@@ -31,11 +25,18 @@ export function validateConfig(rawEnv: NodeJS.ProcessEnv = process.env): AppConf
   const nodeEnv = rawEnv.NODE_ENV || 'development';
   const isProduction = nodeEnv === 'production';
   const jwtSecret = rawEnv.JWT_SECRET;
+  const databaseUrl = rawEnv.DATABASE_URL;
 
   if (isProduction) {
     if (!jwtSecret || jwtSecret.trim() === '' || jwtSecret === DEV_DEFAULT_JWT_SECRET) {
       throw new Error(
         'Configuration error: JWT_SECRET must be explicitly provided in production and cannot use development fallback.'
+      );
+    }
+
+    if (!databaseUrl || databaseUrl.trim() === '') {
+      throw new Error(
+        'Configuration error: DATABASE_URL must be explicitly provided in production and cannot use development fallback.'
       );
     }
   }
@@ -44,7 +45,7 @@ export function validateConfig(rawEnv: NodeJS.ProcessEnv = process.env): AppConf
     PORT: parseInt(rawEnv.PORT || '4000', 10),
     HOST: rawEnv.HOST || '0.0.0.0',
     NODE_ENV: nodeEnv,
-    DATABASE_URL: rawEnv.DATABASE_URL || `file:${path.resolve(dataDir, 'dev.db')}`,
+    DATABASE_URL: databaseUrl || DEV_DEFAULT_DATABASE_URL,
     JWT_SECRET: jwtSecret || DEV_DEFAULT_JWT_SECRET,
     CORS_ORIGIN: rawEnv.CORS_ORIGIN || 'http://localhost:5173',
     TARGET_COOLDOWN_SECONDS: parseInt(rawEnv.TARGET_COOLDOWN_SECONDS || '180', 10),

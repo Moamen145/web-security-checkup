@@ -4,7 +4,7 @@ import { safeFetch } from '../network/pinned.agent.js';
 import { validateAndResolveTarget } from '../network/ssrf.guard.js';
 
 export async function runTlsCheck(domain: string): Promise<CheckModuleExecutionResult> {
-  const startTime = DateTrans();
+  const startTime = Date.now();
   const findings: Array<{ ruleId: string; customDescription?: string; customEvidence?: Record<string, any> }> = [];
   const evidence: Record<string, any> = {
     domain,

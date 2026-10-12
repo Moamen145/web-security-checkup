@@ -35,8 +35,8 @@ A professional, defensive web security configuration and exposure assessment pla
 
 - **Frontend**: React 18, Vite, TypeScript, Tailwind CSS, Lucide Icons
 - **Backend API**: Fastify, TypeScript, Zod, Prisma ORM, Argon2id/Bcrypt
-- **Database**: SQLite (local zero-setup) / PostgreSQL 16 (production)
-- **Background Engine**: Asynchronous queue with event emitter and concurrency controls
+- **Database**: PostgreSQL 16 (canonical local development and production database)
+- **Background Engine**: Asynchronous queue with BullMQ, Redis, and dedicated worker
 - **Containerization**: Docker Compose, Multi-stage Dockerfiles, Nginx reverse proxy
 
 ---
@@ -46,6 +46,8 @@ A professional, defensive web security configuration and exposure assessment pla
 ### Prerequisites
 - Node.js $\ge 20$
 - npm $\ge 10$
+- PostgreSQL $\ge 16$
+- Redis $\ge 7$
 
 ### 1. Installation
 Clone the repository and install workspace dependencies:
@@ -54,9 +56,9 @@ npm install
 ```
 
 ### 2. Database Setup
-Push the Prisma schema to create the local SQLite database (`data/dev.db`):
+Apply the Prisma migrations to create and sync the PostgreSQL database schema:
 ```bash
-npx prisma db push --schema=apps/api/prisma/schema.prisma
+npm --workspace=@wsc/api run prisma:deploy
 ```
 
 ### 3. Run Automated Tests

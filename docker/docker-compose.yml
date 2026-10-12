@@ -13,6 +13,11 @@ services:
       - postgres_data:/var/lib/postgresql/data
     ports:
       - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wsc_user -d websecurity"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
     networks:
       - wsc-network
 
@@ -24,6 +29,21 @@ services:
       - "6379:6379"
     volumes:
       - redis_data:/data
+    networks:
+      - wsc-network
+
+  db-migrate:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.api
+    container_name: wsc-db-migrate
+    restart: "no"
+    environment:
+      DATABASE_URL: postgresql://wsc_user:wsc_password_secure@postgres:5432/websecurity?schema=public
+    command: ["npx", "prisma", "migrate", "deploy"]
+    depends_on:
+      postgres:
+        condition: service_healthy
     networks:
       - wsc-network
 
@@ -40,9 +60,14 @@ services:
       DATABASE_URL: postgresql://wsc_user:wsc_password_secure@postgres:5432/websecurity?schema=public
       JWT_SECRET: wsc-production-secret-signing-key-32bytes
       CORS_ORIGIN: http://localhost:80
+      REDIS_HOST: redis
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      db-migrate:
+        condition: service_completed_successfully
     ports:
       - "4000:4000"
     networks:

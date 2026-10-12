@@ -9,6 +9,8 @@
     "start": "node dist/server.js",
     "prisma:generate": "prisma generate",
     "prisma:push": "prisma db push",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:deploy": "prisma migrate deploy",
     "test": "tsx --test src/tests/*.test.ts"
   },
   "dependencies": {
@@ -25,13 +27,13 @@
     "ioredis": "^6.0.0",
     "ipaddr.js": "^2.2.0",
     "jsonwebtoken": "^9.0.2",
+    "prisma": "^5.14.0",
     "zod": "^3.23.8"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
     "@types/jsonwebtoken": "^9.0.6",
     "@types/node": "^20.12.12",
-    "prisma": "^5.14.0",
     "tsx": "^4.10.5",
     "typescript": "^5.4.5"
   }

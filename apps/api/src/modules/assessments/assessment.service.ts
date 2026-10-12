@@ -15,21 +15,36 @@ export class AssessmentService {
     const cleanHostname = domain.toLowerCase().trim();
     const newAssessmentId = crypto.randomUUID();
 
-    // 1. Find or create Target for user (upsert to prevent race conditions on initial target creation)
-    const target = await prisma.target.upsert({
-      where: {
-        userId_normalizedHostname: {
+    // 1. Find or create Target for user (upsert with P2002 retry for PostgreSQL concurrency)
+    let target;
+    try {
+      target = await prisma.target.upsert({
+        where: {
+          userId_normalizedHostname: {
+            userId,
+            normalizedHostname: cleanHostname,
+          },
+        },
+        update: {},
+        create: {
           userId,
+          domain: cleanHostname,
           normalizedHostname: cleanHostname,
         },
-      },
-      update: {},
-      create: {
-        userId,
-        domain: cleanHostname,
-        normalizedHostname: cleanHostname,
-      },
-    });
+      });
+    } catch (err: any) {
+      if (err.code === 'P2002') {
+        target = await prisma.target.findUnique({
+          where: {
+            userId_normalizedHostname: {
+              userId,
+              normalizedHostname: cleanHostname,
+            },
+          },
+        });
+      }
+      if (!target) throw err;
+    }
 
     // 2. Pre-check: if target already has an activeAssessmentId or active assessment
     if (target.activeAssessmentId) {
