@@ -43,5 +43,27 @@ export function buildApp(): FastifyInstance {
   app.register(assessmentRoutes, { prefix: '/api/v1/assessments' });
   app.register(targetRoutes, { prefix: '/api/v1/targets' });
 
+  // Centralized Error Handler (Production information leakage prevention)
+  app.setErrorHandler((error, request, reply) => {
+    const statusCode =
+      typeof error.statusCode === 'number' && error.statusCode >= 400 && error.statusCode < 600
+        ? error.statusCode
+        : 500;
+
+    if (statusCode < 500) {
+      return reply.status(statusCode).send({ error: error.message });
+    }
+
+    request.log.error(error);
+
+    // In production, mask internal server error to avoid leaking implementation details
+    const message =
+      ENV.NODE_ENV === 'production'
+        ? 'An unexpected internal server error occurred.'
+        : error.message || 'Internal Server Error';
+
+    return reply.status(500).send({ error: message });
+  });
+
   return app;
 }

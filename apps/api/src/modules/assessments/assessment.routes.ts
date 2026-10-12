@@ -112,8 +112,13 @@ export async function assessmentRoutes(fastify: FastifyInstance) {
       reply.hijack();
       reply.raw.setHeader('Content-Type', 'text/event-stream');
       reply.raw.setHeader('Cache-Control', 'no-cache, no-transform');
-      reply.raw.setHeader('Connection', 'keep-alive');
-      reply.raw.setHeader('Access-Control-Allow-Origin', '*');
+      const origin = request.headers.origin;
+      if (origin) {
+        reply.raw.setHeader('Access-Control-Allow-Origin', origin);
+        reply.raw.setHeader('Access-Control-Allow-Credentials', 'true');
+      } else {
+        reply.raw.setHeader('Access-Control-Allow-Origin', '*');
+      }
 
       // 1. If already terminal in DB, immediately emit terminal event and close stream
       if (assessment.status === 'COMPLETED') {

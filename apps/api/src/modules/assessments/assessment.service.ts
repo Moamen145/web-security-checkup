@@ -67,7 +67,7 @@ export class AssessmentService {
     }
 
     // 3. Cooldown check: prevent running duplicate scans during cooldown window
-    const cooldownSeconds = ENV.TARGET_COOLDOWN_SECONDS || 180;
+    const cooldownSeconds = ENV.TARGET_COOLDOWN_SECONDS || 5;
     const cooldownMs = cooldownSeconds * 1000;
 
     const latestCompleted = await prisma.assessment.findFirst({

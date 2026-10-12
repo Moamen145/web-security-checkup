@@ -44,6 +44,14 @@ export async function runDnsCheck(
       // Not a CNAME
     }
 
+    try {
+      if (options?.signal?.aborted) throw new Error('The operation was aborted');
+      evidence.nsRecords = await dns.resolveNs(domain);
+    } catch (err: any) {
+      if (options?.signal?.aborted || err.message === 'The operation was aborted') throw err;
+      evidence.nsRecords = [];
+    }
+
     if (options?.signal?.aborted) {
       throw new Error('The operation was aborted');
     }
@@ -55,9 +63,19 @@ export async function runDnsCheck(
         customDescription: `Domain "${domain}" does not resolve to any active A or AAAA address records.`,
         customEvidence: { domain },
       });
+    } else if (evidence.nsRecords && evidence.nsRecords.length < 2 && evidence.nsRecords.length > 0) {
+      findings.push({
+        ruleId: 'DNS-NO-REDUNDANT-NS',
+        customDescription: `Domain "${domain}" has only ${evidence.nsRecords.length} authoritative nameserver configured (${evidence.nsRecords.join(', ')}). At least 2 are recommended by RFC 1034 for redundancy.`,
+        customEvidence: { nsCount: evidence.nsRecords.length, nsRecords: evidence.nsRecords },
+      });
     }
 
-    const status = findings.length > 0 ? 'FAIL' : 'PASS';
+    const status = findings.some((f) => f.ruleId === 'DNS-NO-RECORDS')
+      ? 'FAIL'
+      : findings.length > 0
+        ? 'WARN'
+        : 'PASS';
 
     return {
       module: 'DNS',

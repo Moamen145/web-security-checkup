@@ -51,7 +51,69 @@ export async function runExposureCheck(
       });
     }
 
-    const status = findings.length > 0 ? 'INFO' : 'PASS';
+    // 3. security.txt discovery (RFC 9116)
+    try {
+      if (options?.signal?.aborted) throw new Error('The operation was aborted');
+      const secTxtRes = await safeFetch(`https://${domain}/.well-known/security.txt`, {
+        method: 'GET',
+        maxRedirects: 2,
+        timeoutMs: 3000,
+        signal: options?.signal,
+      });
+      if (secTxtRes.statusCode === 200 && /contact:/i.test(secTxtRes.body)) {
+        evidence.securityTxtPresent = true;
+      } else {
+        evidence.securityTxtPresent = false;
+        findings.push({
+          ruleId: 'EXP-MISSING-SECURITY-TXT',
+          customDescription: 'No valid security.txt vulnerability disclosure policy found at /.well-known/security.txt.',
+          customEvidence: { checkedUrl: `https://${domain}/.well-known/security.txt`, statusCode: secTxtRes.statusCode },
+        });
+      }
+    } catch (err: any) {
+      if (options?.signal?.aborted || err.message === 'The operation was aborted') throw err;
+      evidence.securityTxtPresent = false;
+      findings.push({
+        ruleId: 'EXP-MISSING-SECURITY-TXT',
+        customDescription: 'No valid security.txt vulnerability disclosure policy found at /.well-known/security.txt.',
+        customEvidence: { error: err.message },
+      });
+    }
+
+    // 4. robots.txt sensitive path disclosure
+    try {
+      if (options?.signal?.aborted) throw new Error('The operation was aborted');
+      const robotsRes = await safeFetch(`https://${domain}/robots.txt`, {
+        method: 'GET',
+        maxRedirects: 2,
+        timeoutMs: 3000,
+        signal: options?.signal,
+      });
+      if (robotsRes.statusCode === 200 && robotsRes.body) {
+        const sensitiveRegex = /disallow:\s*(\/(admin|backup|config|\.git|secret|private|database|dump|api-keys)[^\r\n]*)/gi;
+        const matches: string[] = [];
+        let match;
+        while ((match = sensitiveRegex.exec(robotsRes.body)) !== null) {
+          matches.push(match[1]);
+        }
+        if (matches.length > 0) {
+          findings.push({
+            ruleId: 'EXP-ROBOTS-SENSITIVE-PATHS',
+            customDescription: `robots.txt reveals ${matches.length} potentially sensitive administrative or backup path(s): ${matches.slice(0, 3).join(', ')}.`,
+            customEvidence: { disallowedPaths: matches },
+          });
+        }
+      }
+    } catch (err: any) {
+      if (options?.signal?.aborted || err.message === 'The operation was aborted') throw err;
+      // robots.txt unreachable, ignore
+    }
+
+    const status = findings.some((f) => f.ruleId === 'EXP-ROBOTS-SENSITIVE-PATHS')
+      ? 'WARN'
+      : findings.length > 0
+        ? 'INFO'
+        : 'PASS';
 
     return {
       module: 'EXPOSURE',

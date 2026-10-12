@@ -48,7 +48,7 @@ export function validateConfig(rawEnv: NodeJS.ProcessEnv = process.env): AppConf
     DATABASE_URL: databaseUrl || DEV_DEFAULT_DATABASE_URL,
     JWT_SECRET: jwtSecret || DEV_DEFAULT_JWT_SECRET,
     CORS_ORIGIN: rawEnv.CORS_ORIGIN || 'http://localhost:5173',
-    TARGET_COOLDOWN_SECONDS: parseInt(rawEnv.TARGET_COOLDOWN_SECONDS || '180', 10),
+    TARGET_COOLDOWN_SECONDS: parseInt(rawEnv.TARGET_COOLDOWN_SECONDS || '5', 10),
     REDIS_HOST: rawEnv.REDIS_HOST || 'localhost',
     REDIS_PORT: parseInt(rawEnv.REDIS_PORT || '6379', 10),
     REDIS_PASSWORD: rawEnv.REDIS_PASSWORD || undefined,

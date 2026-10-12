@@ -150,7 +150,7 @@ export const SettingsPage: React.FC = () => {
                 <div>
                   <span className="font-semibold text-white">Target Cooldown & Concurrency Guard</span>
                   <p className="text-[11px] text-slate-400 mt-0.5 font-sans">
-                    Automatic 60-second cooldown per target prevents denial-of-service pressure against assessed hosts.
+                    Automatic 5-second cooldown per target prevents denial-of-service pressure against assessed hosts.
                   </p>
                 </div>
               </div>

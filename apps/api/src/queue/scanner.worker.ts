@@ -215,32 +215,59 @@ export async function processScanJob(
     const safeError = err.message || 'Scan execution encountered an unexpected error.';
     console.error(`[ScannerWorker] Scan failed for ${assessmentId}:`, safeError);
 
-    // 10. Terminal failure handling
-    await prisma.$transaction(async (tx) => {
-      await tx.assessment.update({
+    const isUnrecoverable = err instanceof UnrecoverableError;
+    const maxAttempts = job?.opts?.attempts ?? 1;
+    const attemptsMade = job?.attemptsMade ?? 0;
+    const hasRetriesRemaining = !isUnrecoverable && job !== undefined && attemptsMade < maxAttempts - 1;
+
+    if (hasRetriesRemaining) {
+      console.warn(
+        `[ScannerWorker] Scan attempt ${attemptsMade + 1} of ${maxAttempts} failed for ${assessmentId}: ${safeError}. BullMQ retry will follow.`
+      );
+
+      // Keep status as RUNNING and keep target lock active during retry window
+      await prisma.assessment.update({
         where: { id: assessmentId },
         data: {
-          status: 'FAILED',
-          errorMessage: safeError,
-          completedAt: new Date(),
+          errorMessage: `Attempt ${attemptsMade + 1} failed: ${safeError}. Retrying...`,
         },
       });
 
-      if (assessment.targetId) {
-        await tx.target.update({
-          where: { id: assessment.targetId },
-          data: { activeAssessmentId: null },
+      progressBus.emitProgress(
+        assessmentId,
+        'RETRYING',
+        15,
+        `Scan attempt ${attemptsMade + 1} failed. Retrying...`,
+        'RUNNING'
+      );
+    } else {
+      // 10. Terminal failure handling (attempts exhausted or unrecoverable error)
+      await prisma.$transaction(async (tx) => {
+        await tx.assessment.update({
+          where: { id: assessmentId },
+          data: {
+            status: 'FAILED',
+            errorMessage: safeError,
+            completedAt: new Date(),
+          },
         });
-      }
-    });
 
-    progressBus.emitProgress(
-      assessmentId,
-      'ERROR',
-      100,
-      safeError,
-      'FAILED'
-    );
+        if (assessment.targetId) {
+          await tx.target.update({
+            where: { id: assessment.targetId },
+            data: { activeAssessmentId: null },
+          });
+        }
+      });
+
+      progressBus.emitProgress(
+        assessmentId,
+        'ERROR',
+        100,
+        safeError,
+        'FAILED'
+      );
+    }
 
     throw err;
   }

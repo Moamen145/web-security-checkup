@@ -195,6 +195,29 @@ export async function runHeadersCheck(
       evidence.permissionsPolicy = permPolicy;
     }
 
+    // 7. Cross-Origin-Opener-Policy (COOP)
+    const coop = normalizedHeaders['cross-origin-opener-policy'];
+    if (!coop) {
+      findings.push({
+        ruleId: 'HDR-MISSING-COOP',
+        customEvidence: { headerPresent: false },
+      });
+    } else {
+      evidence.coopValue = coop;
+    }
+
+    // 8. Permissive CORS (Access-Control-Allow-Origin)
+    const acao = normalizedHeaders['access-control-allow-origin'];
+    if (acao === '*') {
+      findings.push({
+        ruleId: 'HDR-PERMISSIVE-CORS',
+        customDescription: 'The response header Access-Control-Allow-Origin is set to wildcard (*), allowing any origin to read resource data.',
+        customEvidence: { accessControlAllowOrigin: acao },
+      });
+    } else if (acao) {
+      evidence.accessControlAllowOrigin = acao;
+    }
+
     const status = findings.length === 0 ? 'PASS' : findings.some((f) => f.ruleId === 'HDR-MISSING-HSTS') ? 'WARN' : 'WARN';
 
     return {

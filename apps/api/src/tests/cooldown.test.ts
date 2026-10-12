@@ -83,15 +83,15 @@ describe('SEC-03: Target Scan Cooldown Enforcement', () => {
       },
     });
 
-    // Completed 30 seconds ago (cooldown is 180s)
+    // Completed 2 seconds ago (cooldown is 5s)
     await prisma.assessment.create({
       data: {
         targetId: target.id,
         userId: user.id,
         domain,
         status: 'COMPLETED',
-        createdAt: new Date(Date.now() - 40 * 1000),
-        completedAt: new Date(Date.now() - 30 * 1000),
+        createdAt: new Date(Date.now() - 5 * 1000),
+        completedAt: new Date(Date.now() - 2 * 1000),
       },
     });
 
@@ -117,15 +117,15 @@ describe('SEC-03: Target Scan Cooldown Enforcement', () => {
       },
     });
 
-    // Completed 250 seconds ago (exceeding 180s cooldown)
+    // Completed 10 seconds ago (exceeding 5s cooldown)
     await prisma.assessment.create({
       data: {
         targetId: target.id,
         userId: user.id,
         domain,
         status: 'COMPLETED',
-        createdAt: new Date(Date.now() - 300 * 1000),
-        completedAt: new Date(Date.now() - 250 * 1000),
+        createdAt: new Date(Date.now() - 15 * 1000),
+        completedAt: new Date(Date.now() - 10 * 1000),
       },
     });
 

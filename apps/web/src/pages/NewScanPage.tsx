@@ -85,7 +85,7 @@ export const NewScanPage: React.FC<NewScanPageProps> = ({
 
       if (statusCode === 429 || errMsg.includes('cooldown')) {
         const secs = extractCooldownSeconds(errMsg);
-        setCooldownRemaining(typeof secs === 'number' && secs > 0 ? secs : 60);
+        setCooldownRemaining(typeof secs === 'number' && secs > 0 ? secs : 5);
         setError(`Target cooldown active. Please wait before re-scanning this domain.`);
       } else if (statusCode === 409 || errMsg.includes('already active')) {
         setIs409Conflict(true);

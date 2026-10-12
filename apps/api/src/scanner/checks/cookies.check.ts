@@ -89,6 +89,19 @@ export async function runCookiesCheck(
       });
     }
 
+    // Check for sensitive cookies missing __Host- prefix
+    const sessionCookieRegex = /sess|auth|token|jwt|sid|login/i;
+    const sessionCookiesWithoutHostPrefix = parsedCookies.filter(
+      (c) => sessionCookieRegex.test(c.name) && !c.name.startsWith('__Host-')
+    );
+    if (sessionCookiesWithoutHostPrefix.length > 0) {
+      findings.push({
+        ruleId: 'CK-MISSING-HOST-PREFIX',
+        customDescription: `Identified session/auth cookie(s) lacking protective __Host- prefix: ${sessionCookiesWithoutHostPrefix.map((c) => c.name).join(', ')}.`,
+        customEvidence: { cookiesWithoutHostPrefix: sessionCookiesWithoutHostPrefix.map((c) => c.name) },
+      });
+    }
+
     const status = findings.length === 0 ? 'PASS' : findings.some((f) => f.ruleId === 'CK-MISSING-SECURE') ? 'WARN' : 'INFO';
 
     return {

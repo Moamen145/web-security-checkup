@@ -116,11 +116,32 @@ export async function runTlsCheck(
       });
     }
 
+    // Evaluate weak cipher suites
+    const isWeakCipher = /RC4|3DES|DES|MD5|CBC|NULL|EXPORT/i.test(tlsResult.cipher || '');
+    if (isWeakCipher && tlsResult.cipher) {
+      findings.push({
+        ruleId: 'TLS-WEAK-CIPHER',
+        customDescription: `The web server negotiated deprecated or weak cipher suite "${tlsResult.cipher}".`,
+        customEvidence: { cipher: tlsResult.cipher, protocol: tlsResult.protocol },
+      });
+    }
+
+    // Evaluate TLS 1.3 support (informational)
+    if (tlsResult.protocol === 'TLSv1.2') {
+      findings.push({
+        ruleId: 'TLS-NO-TLS13',
+        customDescription: 'The web server negotiated TLS 1.2. Modern TLS 1.3 is recommended for lower latency and stronger cryptographic defaults.',
+        customEvidence: { protocol: tlsResult.protocol },
+      });
+    }
+
     const status = findings.some((f) => f.ruleId === 'TLS-CERT-EXPIRED' || f.ruleId === 'TLS-CERT-HOSTNAME-MISMATCH')
       ? 'FAIL'
-      : findings.length > 0
+      : findings.some((f) => f.ruleId !== 'TLS-NO-TLS13')
         ? 'WARN'
-        : 'PASS';
+        : findings.length > 0
+          ? 'INFO'
+          : 'PASS';
 
     return {
       module: 'TLS_HTTPS',

@@ -61,6 +61,7 @@ services:
       JWT_SECRET: wsc-production-secret-signing-key-32bytes
       CORS_ORIGIN: http://localhost:80
       REDIS_HOST: redis
+      TARGET_COOLDOWN_SECONDS: 5
     depends_on:
       postgres:
         condition: service_healthy

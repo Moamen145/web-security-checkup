@@ -156,7 +156,7 @@ describe('PHASE 2: Concurrency & TOCTOU Race Condition Elimination', () => {
         userId: user.id,
         domain,
         normalizedHostname: domain,
-        lastAssessedAt: new Date(Date.now() - 30 * 1000), // 30s ago (180s cooldown)
+        lastAssessedAt: new Date(Date.now() - 2 * 1000), // 2s ago (5s cooldown)
       },
     });
 
@@ -166,8 +166,8 @@ describe('PHASE 2: Concurrency & TOCTOU Race Condition Elimination', () => {
         userId: user.id,
         domain,
         status: 'COMPLETED',
-        createdAt: new Date(Date.now() - 40 * 1000),
-        completedAt: new Date(Date.now() - 30 * 1000),
+        createdAt: new Date(Date.now() - 5 * 1000),
+        completedAt: new Date(Date.now() - 2 * 1000),
       },
     });
 

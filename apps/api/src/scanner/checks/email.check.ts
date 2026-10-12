@@ -46,7 +46,16 @@ export async function runEmailSecurityCheck(
       if (options?.signal?.aborted) throw new Error('The operation was aborted');
       const txtRecords = await dns.resolveTxt(domain);
       const flattenedTxt = txtRecords.map((chunk) => chunk.join(''));
-      const spf = flattenedTxt.find((r) => r.toLowerCase().startsWith('v=spf1'));
+      const allSpf = flattenedTxt.filter((r) => r.toLowerCase().startsWith('v=spf1'));
+      const spf = allSpf[0];
+
+      if (allSpf.length > 1) {
+        findings.push({
+          ruleId: 'EMAIL-MULTIPLE-SPF',
+          customDescription: `The domain publishes ${allSpf.length} distinct SPF records, violating RFC 7208 §3.2 and causing receiving mailboxes to treat SPF as a PermError failure.`,
+          customEvidence: { spfRecords: allSpf, count: allSpf.length },
+        });
+      }
 
       if (!spf) {
         findings.push({

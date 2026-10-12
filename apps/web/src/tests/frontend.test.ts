@@ -43,6 +43,12 @@ describe('Frontend Logic & UX Rules', () => {
       assert.equal(seconds, 1);
     });
 
+    it('extracts cooldown seconds from 5 seconds remaining message', () => {
+      const message = 'Target scan cooldown active. This target was recently assessed. Please wait 5 seconds before requesting another scan.';
+      const seconds = extractCooldownSeconds(message);
+      assert.equal(seconds, 5);
+    });
+
     it('returns null for non-cooldown messages', () => {
       assert.equal(extractCooldownSeconds('Domain is not reachable via public DNS'), null);
       assert.equal(extractCooldownSeconds('Authentication required'), null);
