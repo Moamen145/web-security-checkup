@@ -76,6 +76,9 @@ export async function resolveUserFromRequest(request: FastifyRequest): Promise<a
 
   try {
     const payload = AuthService.verifyToken(token);
+    if (payload.scope === 'stream') {
+      return null;
+    }
     const user = await prisma.user.findUnique({
       where: { id: payload.sub },
       select: { id: true, email: true, fullName: true, role: true, createdAt: true },

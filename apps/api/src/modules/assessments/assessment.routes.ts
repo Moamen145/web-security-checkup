@@ -2,6 +2,7 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { createAssessmentSchema, compareAssessmentsSchema } from '@wsc/shared';
 import { AssessmentService } from './assessment.service.js';
 import { resolveUserFromRequest } from '../auth/auth.routes.js';
+import { AuthService } from '../auth/auth.service.js';
 import { progressBus } from '../../queue/progress.bus.js';
 import { generateAiExplanation } from '../../scanner/ai/ai.advisor.js';
 import { prisma } from '../../db/client.js';
@@ -87,9 +88,9 @@ export async function assessmentRoutes(fastify: FastifyInstance) {
     }
   );
 
-  // SSE Stream for Real-Time Scan Progress
-  fastify.get(
-    '/:id/stream',
+  // Generate short-lived, assessment-scoped SSE stream token
+  fastify.post(
+    '/:id/stream-token',
     async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
       const user = await resolveUserFromRequest(request);
       if (!user) {
@@ -97,10 +98,56 @@ export async function assessmentRoutes(fastify: FastifyInstance) {
       }
 
       const assessmentId = request.params.id;
+      const assessment = await prisma.assessment.findFirst({
+        where: { id: assessmentId, userId: user.id },
+        select: { id: true },
+      });
+
+      if (!assessment) {
+        return reply.status(404).send({ error: 'Assessment not found.' });
+      }
+
+      const streamToken = AuthService.generateStreamToken(user.id, assessmentId);
+      return reply.send({ streamToken });
+    }
+  );
+
+  // SSE Stream for Real-Time Scan Progress
+  fastify.get(
+    '/:id/stream',
+    async (
+      request: FastifyRequest<{
+        Params: { id: string };
+        Querystring: { streamToken?: string };
+      }>,
+      reply: FastifyReply
+    ) => {
+      const assessmentId = request.params.id;
+      const streamToken = (request.query as any)?.streamToken;
+
+      let userId: string | null = null;
+
+      if (streamToken) {
+        try {
+          const verified = AuthService.verifyStreamToken(streamToken, assessmentId);
+          userId = verified.userId;
+        } catch {
+          return reply.status(401).send({ error: 'Invalid or expired stream token.' });
+        }
+      } else {
+        const user = await resolveUserFromRequest(request);
+        if (user) {
+          userId = user.id;
+        }
+      }
+
+      if (!userId) {
+        return reply.status(401).send({ error: 'Authentication required.' });
+      }
 
       // SEC-01: Verify that assessment exists AND belongs to the authenticated user before establishing SSE
       const assessment = await prisma.assessment.findFirst({
-        where: { id: assessmentId, userId: user.id },
+        where: { id: assessmentId, userId },
         select: { id: true, status: true, errorMessage: true },
       });
 
@@ -112,6 +159,8 @@ export async function assessmentRoutes(fastify: FastifyInstance) {
       reply.hijack();
       reply.raw.setHeader('Content-Type', 'text/event-stream');
       reply.raw.setHeader('Cache-Control', 'no-cache, no-transform');
+      reply.raw.setHeader('Connection', 'keep-alive');
+      reply.raw.setHeader('X-Accel-Buffering', 'no');
       const origin = request.headers.origin;
       if (origin) {
         reply.raw.setHeader('Access-Control-Allow-Origin', origin);

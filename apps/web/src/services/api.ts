@@ -106,32 +106,52 @@ export const api = {
   deleteTarget: (targetId: string): Promise<{ message: string }> =>
     request(`/targets/${targetId}`, { method: 'DELETE' }),
 
+  // Stream Token
+  getStreamToken: (assessmentId: string): Promise<{ streamToken: string }> =>
+    request(`/assessments/${assessmentId}/stream-token`, { method: 'POST' }),
+
   // SSE Stream
   subscribeToScanStream: (
     assessmentId: string,
     onProgress: (event: ScanProgressEvent) => void,
     onError?: (err: any) => void
   ) => {
-    const url = `${API_BASE}/assessments/${assessmentId}/stream`;
+    let eventSource: EventSource | null = null;
+    let isClosed = false;
 
-    const eventSource = new EventSource(url, { withCredentials: true });
+    api
+      .getStreamToken(assessmentId)
+      .then(({ streamToken }) => {
+        if (isClosed) return;
+        const url = `${API_BASE}/assessments/${assessmentId}/stream?streamToken=${encodeURIComponent(streamToken)}`;
 
-    eventSource.addEventListener('progress', (e) => {
-      try {
-        const parsed = JSON.parse(e.data);
-        onProgress(parsed);
-      } catch (err) {
-        console.error('SSE JSON parse error:', err);
-      }
-    });
+        eventSource = new EventSource(url, { withCredentials: true });
 
-    eventSource.onerror = (err) => {
-      eventSource.close();
-      onError?.(err);
-    };
+        eventSource.addEventListener('progress', (e) => {
+          try {
+            const parsed = JSON.parse(e.data);
+            onProgress(parsed);
+          } catch (err) {
+            console.error('SSE JSON parse error:', err);
+          }
+        });
+
+        eventSource.onerror = (err) => {
+          if (eventSource) eventSource.close();
+          onError?.(err);
+        };
+      })
+      .catch((err) => {
+        if (!isClosed) {
+          onError?.(err);
+        }
+      });
 
     return () => {
-      eventSource.close();
+      isClosed = true;
+      if (eventSource) {
+        eventSource.close();
+      }
     };
   },
 };

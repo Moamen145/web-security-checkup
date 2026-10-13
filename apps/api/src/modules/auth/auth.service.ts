@@ -80,4 +80,24 @@ export class AuthService {
   static verifyToken(token: string): any {
     return jwt.verify(token, ENV.JWT_SECRET);
   }
+
+  static generateStreamToken(userId: string, assessmentId: string): string {
+    return jwt.sign(
+      {
+        sub: userId,
+        assessmentId,
+        scope: 'stream',
+      },
+      ENV.JWT_SECRET,
+      { expiresIn: '5m' }
+    );
+  }
+
+  static verifyStreamToken(token: string, assessmentId: string): { userId: string } {
+    const payload = jwt.verify(token, ENV.JWT_SECRET) as any;
+    if (payload.scope !== 'stream' || payload.assessmentId !== assessmentId || !payload.sub) {
+      throw new Error('Invalid or expired stream token.');
+    }
+    return { userId: payload.sub };
+  }
 }
