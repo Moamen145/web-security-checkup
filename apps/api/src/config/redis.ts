@@ -6,11 +6,13 @@ export function getRedisConnectionOptions(): ConnectionOptions {
   if (ENV.REDIS_URL) {
     try {
       const parsed = new URL(ENV.REDIS_URL);
+      const isTls = parsed.protocol === 'rediss:';
       return {
         host: parsed.hostname,
         port: parseInt(parsed.port || '6379', 10),
         username: parsed.username || undefined,
         password: parsed.password || undefined,
+        tls: isTls ? {} : undefined,
         maxRetriesPerRequest: null,
       };
     } catch {
